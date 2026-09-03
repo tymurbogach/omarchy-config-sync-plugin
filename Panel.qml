@@ -28,6 +28,7 @@ Panel {
   property bool busy: false
   property string lastError: ""
   property string lastMessage: ""
+  property string lastStderr: ""
   property string pendingAction: ""
   property var pendingArgs: []
   property string pendingStdin: ""
@@ -661,6 +662,7 @@ Panel {
     }
     busy = true
     lastError = ""
+    lastStderr = ""
     pendingAction = args[0] || ""
     syncProc.command = ["python3", "-u", root.scriptPath].concat(args)
     syncProc.running = true
@@ -672,8 +674,13 @@ Panel {
   function handleOutput(text) {
     busy = false
     var raw = String(text || "").trim()
+    // The backend also logs every invocation to config-sync.log; stderr is
+    // shown here so a crashed helper is visible instead of a generic message.
+    var errHint = String(lastStderr || "").trim().slice(0, 500)
+    if (errHint)
+      errHint = " Helper said: " + errHint
     if (!raw) {
-      lastError = "The sync helper returned no output."
+      lastError = "The sync helper returned no output." + errHint
       return
     }
     if (raw.length > 5 * 1024 * 1024) {
@@ -684,11 +691,11 @@ Panel {
     try {
       data = JSON.parse(raw)
     } catch (e) {
-      lastError = "Could not parse sync helper output."
+      lastError = "Could not parse sync helper output." + errHint
       return
     }
     if (!data.ok) {
-      lastError = String(data.error || "Sync failed.")
+      lastError = String(data.error || ("Sync failed." + errHint))
       if (data.both) activeTab = 1
       if (data.conflicts) {
         status = Object.assign({}, status, { conflicts: data.conflicts, sync_state: "conflicts", configured: true })
@@ -747,7 +754,12 @@ Panel {
         }
       }
     }
-    stderr: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.lastStderr = text
+      }
+    }
   }
 
   IpcHandler {

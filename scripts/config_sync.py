@@ -51,6 +51,8 @@ MAX_REPO_DISK_BYTES = 512 * 1024 * 1024
 # Aggregate bytes one apply/publish may copy (backup + installed files), so the
 # per-file cap cannot be multiplied by the inventory cap.
 MAX_SYNC_TOTAL_BYTES = 512 * 1024 * 1024
+# Cap for the human-readable backend log (one rotated backup is kept).
+LOG_MAX_BYTES = 256 * 1024
 
 BIND_RE = re.compile(
     r"""o\.bind\(\s*"([^"]+)"\s*,\s*(?:nil|"([^"]*)")""",
@@ -62,7 +64,7 @@ SKIP_DIR_NAMES = {".git", "__pycache__", ".mypy_cache", ".pytest_cache", "node_m
 SKIP_FILE_NAMES = {".DS_Store"}
 SKIP_NAME_RE = re.compile(r"\.bak(\.|$)")
 PROTECTED_PLUGINS = {PLUGIN_ID}  # this plugin is excluded from sync so it does not self-report or overwrite itself
-PLUGIN_VERSION = "1.2.16"
+PLUGIN_VERSION = "1.2.17"
 
 FILE_SUMMARIES = {
     "hypr/autostart.lua": "Autostart programs",
@@ -150,6 +152,53 @@ def fail(message: str, **extra: Any) -> dict[str, Any]:
     out = {"ok": False, "error": message}
     out.update(extra)
     return out
+
+
+def log_file_path(ctx: Context) -> Path:
+    return ctx.state_dir / "config-sync.log"
+
+
+def read_stdin_line() -> str:
+    """Read one URL line from stdin.
+
+    The panel writes the URL plus a newline and keeps the pipe open, so a
+    read-until-EOF here would block forever and Connect would hang with no
+    error. readline() returns as soon as the newline arrives; a pasted URL
+    typed on a TTY works the same way.
+    """
+    try:
+        line = sys.stdin.readline(MAX_URL_INPUT_BYTES)
+    except OSError:
+        return ""
+    return line.strip()
+
+
+def append_log(ctx: Context, command: str, succeeded: bool, detail: str = "") -> None:
+    """Best-effort file log so panel failures can be diagnosed from a terminal.
+
+    The bar swallows the backend's stderr, so without this file a failed
+    Connect/Publish leaves no trace. Never raises; never logs credentials —
+    callers must pass detail through sanitize_url first.
+    """
+    try:
+        ctx.state_dir.mkdir(parents=True, exist_ok=True)
+        path = log_file_path(ctx)
+        if path.is_file():
+            try:
+                if path.stat().st_size > LOG_MAX_BYTES:
+                    backup = path.with_name(path.name + ".1")
+                    try:
+                        backup.unlink()
+                    except OSError:
+                        pass
+                    path.replace(backup)
+            except OSError:
+                pass
+        line = f"{now_iso()} {command} {'ok' if succeeded else 'FAIL'} {detail}\n"
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(line[:2000])
+    except OSError:
+        pass
 
 
 def ensure_parent(path: Path) -> None:
@@ -2294,7 +2343,7 @@ def cmd_snapshot(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
 def cmd_connect(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     source_raw = ""
     if getattr(args, "stdin", False):
-        source_raw = sys.stdin.read(MAX_URL_INPUT_BYTES).strip()
+        source_raw = read_stdin_line()
     if not source_raw:
         source_raw = " ".join(args.args).strip() or (args.url or "")
     kind, value = normalize_source(source_raw)
@@ -2765,6 +2814,20 @@ def cmd_apply(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     # enforcement, decremented by bytes actually written.
     _check_operation_size([i["repo_path"] for i in chosen] + [i["local_path"] for i in backup_targets], "Apply")
     budget = ByteBudget(MAX_SYNC_TOTAL_BYTES, "Apply")
+    if args.dry_run:
+        # Preview only: the selection above was validated (size budget,
+        # conflicts), but nothing below runs — no backup, no copies, no
+        # theme switch, no reload and no state update.
+        snap = build_snapshot(ctx, fetch=False)
+        would = [i["path"] for i in chosen]
+        if shortcut_keys and (ctx.config_hypr / "bindings.lua").is_file():
+            would.append("hypr/bindings.lua")
+        snap["applied"] = would
+        snap["dry_run"] = True
+        snap["backup_dir"] = ""
+        snap["reload"] = {}
+        snap["message"] = f"Dry run: would apply {len(would)} file(s). No changes made, no backup taken."
+        return snap
     backup_dir = backup_local(ctx, backup_targets, budget=budget)
     applied = []
     for item in chosen:
@@ -2899,6 +2962,19 @@ def cmd_publish(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
 
     _check_operation_size([i["local_path"] for i in chosen], "Publish")
     budget = ByteBudget(MAX_SYNC_TOTAL_BYTES, "Publish")
+    if args.dry_run:
+        # Preview only: the selection above was validated (size budget,
+        # conflicts), but nothing below runs — no copies into the clone, no
+        # commit, no push and no state update.
+        snap = build_snapshot(ctx, fetch=False)
+        would = [i["path"] for i in chosen]
+        snap["published"] = would
+        snap["committed"] = False
+        snap["pushed"] = False
+        snap["dry_run"] = True
+        extra = f" plus {len(shortcut_keys)} selected shortcut(s)" if shortcut_keys else ""
+        snap["message"] = f"Dry run: would publish {len(would)} file(s){extra}. No changes made."
+        return snap
     write_marker(repo)
     published = []
     for item in chosen:
@@ -3123,7 +3199,7 @@ def cmd_set_url(ctx: Context, args: argparse.Namespace) -> dict[str, Any]:
     repo = configured_repo(ctx)
     source_raw = ""
     if getattr(args, "stdin", False):
-        source_raw = sys.stdin.read(MAX_URL_INPUT_BYTES).strip()
+        source_raw = read_stdin_line()
     if not source_raw:
         source_raw = " ".join(args.args).strip() or (args.url or "")
     kind, value = normalize_source(source_raw)
@@ -3458,12 +3534,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     ctx = Context.from_env()
+    started = time.monotonic()
     try:
         result = dispatch(ctx, args)
     except SyncError as exc:
         result = fail(str(exc), **exc.extra)
     except Exception as exc:  # noqa: BLE001 — CLI must never print a traceback to QML
         result = fail(str(exc) or exc.__class__.__name__)
+    elapsed = time.monotonic() - started
+    # The panel swallows stderr, so every invocation leaves one line here:
+    # ~/.local/share/omarchy-config-sync/config-sync.log. Credentials are
+    # masked; a failing Connect/Publish can be diagnosed with `tail` on it.
+    detail = f"{elapsed:.1f}s"
+    if not result.get("ok"):
+        err = sanitize_url(str(result.get("error") or ""))[:300]
+        err = re.sub(r"\s+", " ", err)
+        detail = f"{detail} {err}"
+    append_log(ctx, str(getattr(args, "command", "?") or "?"), bool(result.get("ok")), detail)
+    result["log_file"] = str(log_file_path(ctx))
     payload = json.dumps(result, ensure_ascii=False)
     if len(payload.encode("utf-8")) > MAX_RESPONSE_BYTES:
         # Enforce the bound before writing, not after the panel has buffered it all.

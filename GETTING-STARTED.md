@@ -131,7 +131,7 @@ When the badge lights up, **Review Changes** (or press `c`) opens a checklist. Y
 
 The selected Omarchy theme (`omarchy theme current`) is part of that list. Stock themes only need the name. If you customized a theme under `~/.config/omarchy/themes/<slug>/`, those overlay files sync too (wallpapers and preview images are skipped so the repo stays small). Apply runs `omarchy theme set` on the other machine.
 
-Both machines need the **same Config Sync plugin version** (Overview shows `Plugin: config-sync 1.2.16`). Incoming/outgoing groups, Include checkboxes, and Resync live in that version. Update with `omarchy plugin update gladimdim.config-sync --yes`, or copy `~/.config/omarchy/plugins/gladimdim.config-sync/` from the machine that already has 1.2.16, then `omarchy restart shell`. Removing the plugin also forgets the linked repo, so a reinstall starts at Connect.
+Both machines need the **same Config Sync plugin version** (Overview shows `Plugin: config-sync 1.2.17`). Incoming/outgoing groups, Include checkboxes, and Resync live in that version. Update with `omarchy plugin update gladimdim.config-sync --yes`, or copy `~/.config/omarchy/plugins/gladimdim.config-sync/` from the machine that already has 1.2.17, then `omarchy restart shell`. Removing the plugin also forgets the linked repo, so a reinstall starts at Connect.
 
 | You did this | Open the icon | Press |
 | --- | --- | --- |
@@ -142,6 +142,12 @@ Both machines need the **same Config Sync plugin version** (Overview shows `Plug
 ---
 
 ## If something goes wrong
+
+**Connect spins forever / an operation fails with no detail**
+The backend logs every invocation (with credentials masked) to
+`~/.local/share/omarchy-config-sync/config-sync.log`. Run
+`tail -n 30 ~/.local/share/omarchy-config-sync/config-sync.log` in a terminal
+right after reproducing it — the last line tells you which command failed and why.
 
 **“Git could not authenticate”**  
 The bar will not ask for a password. Run `gh auth login` or fix SSH, then click refresh (right-click the icon, or `r` in the panel).

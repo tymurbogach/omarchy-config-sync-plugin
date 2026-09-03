@@ -264,12 +264,12 @@ class ShortcutTests(unittest.TestCase):
         with TempHome() as env:
             repo = make_config_repo(env.home / "cfg")
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
-            applied = cs.cmd_apply(env.ctx, argparse_ns())
+            applied = cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
             self.assertTrue(applied["ok"], applied)
             # Plugins/hooks/bin run code, so they need a separate explicit opt-in apply.
             bundle_applied = cs.cmd_apply(
                 env.ctx,
-                argparse_ns(
+                argparse_ns(dry_run=False, 
                     explicit=True,
                     files="bin/useful-tool,omarchy/hooks/post-update.d/setup-agent.hook",
                     plugin=["demo.widget"],
@@ -332,7 +332,7 @@ class ShortcutTests(unittest.TestCase):
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
             applied = cs.cmd_apply(
                 env.ctx,
-                argparse_ns(explicit=True, files="", shortcut=["SUPER + A", "SUPER + D"]),
+                argparse_ns(dry_run=False, explicit=True, files="", shortcut=["SUPER + A", "SUPER + D"]),
             )
             self.assertTrue(applied["ok"], applied)
             text = (env.ctx.config_hypr / "bindings.lua").read_text(encoding="utf-8")
@@ -447,7 +447,7 @@ class InspectAndSyncTests(unittest.TestCase):
             self.assertTrue(snap["configured"])
             self.assertEqual(snap["sync_state"], "ready")
 
-            applied = cs.cmd_apply(env.ctx, argparse_ns())
+            applied = cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
             self.assertTrue(applied["ok"], applied)
             self.assertIn("hypr/bindings.lua", applied["applied"])
             self.assertNotIn("hypr/monitors.lua", applied["applied"])
@@ -467,7 +467,7 @@ class InspectAndSyncTests(unittest.TestCase):
             # rather than landing via the default (unselected) Apply above.
             bundle_applied = cs.cmd_apply(
                 env.ctx,
-                argparse_ns(explicit=True, files="bin/useful-tool", plugin=["demo.widget"]),
+                argparse_ns(dry_run=False, explicit=True, files="bin/useful-tool", plugin=["demo.widget"]),
             )
             self.assertTrue(bundle_applied["ok"], bundle_applied)
             self.assertTrue((env.ctx.config_plugins / "demo.widget" / "manifest.json").is_file())
@@ -480,10 +480,10 @@ class InspectAndSyncTests(unittest.TestCase):
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
             # First apply so hashes exist, then edit locally. Plugins/hooks/bin
             # run code, so they need a separate explicit opt-in apply.
-            cs.cmd_apply(env.ctx, argparse_ns())
+            cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
             cs.cmd_apply(
                 env.ctx,
-                argparse_ns(
+                argparse_ns(dry_run=False, 
                     explicit=True,
                     files="bin/useful-tool,omarchy/hooks/post-update.d/setup-agent.hook",
                     plugin=["demo.widget"],
@@ -496,7 +496,7 @@ class InspectAndSyncTests(unittest.TestCase):
 
             snap = cs.cmd_snapshot(env.ctx, argparse_ns())
             self.assertEqual(snap["sync_state"], "local-ahead", snap["status"])
-            published = cs.cmd_publish(env.ctx, argparse_ns())
+            published = cs.cmd_publish(env.ctx, argparse_ns(dry_run=False, ))
             self.assertTrue(published["ok"], published)
             self.assertIn("hypr/bindings.lua", published["published"])
             repo_bindings = (repo / "hypr" / "bindings.lua").read_text(encoding="utf-8")
@@ -511,7 +511,7 @@ class InspectAndSyncTests(unittest.TestCase):
         with TempHome() as env:
             repo = make_config_repo(env.home / "cfg")
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
-            cs.cmd_apply(env.ctx, argparse_ns())
+            cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
 
             # Put different content locally and on repo in config-sync plugin directory
             write(env.ctx.config_plugins / cs.PLUGIN_ID / "Panel.qml", "// local version")
@@ -527,11 +527,11 @@ class InspectAndSyncTests(unittest.TestCase):
         with TempHome() as env:
             repo = make_config_repo(env.home / "cfg")
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
-            cs.cmd_apply(env.ctx, argparse_ns())
+            cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
             write(env.ctx.config_hypr / "bindings.lua", 'o.bind("SUPER + L", "Local", "true")\n')
             write(repo / "hypr" / "bindings.lua", 'o.bind("SUPER + R", "Repo", "true")\n')
             write(repo / "plugins" / "news.reader" / "manifest.json", '{"id":"news.reader","name":"News"}')
-            result = cs.cmd_resync(env.ctx, argparse_ns(side="repo"))
+            result = cs.cmd_resync(env.ctx, argparse_ns(dry_run=False, side="repo"))
             self.assertTrue(result["ok"], result)
             self.assertEqual(result.get("resync"), "repo")
             self.assertIn("SUPER + R", (env.ctx.config_hypr / "bindings.lua").read_text(encoding="utf-8"))
@@ -541,7 +541,7 @@ class InspectAndSyncTests(unittest.TestCase):
         with TempHome() as env:
             repo = make_config_repo(env.home / "cfg")
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
-            cs.cmd_apply(env.ctx, argparse_ns())
+            cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
             # Local and repo both edit bindings after the snapshot hashes were stored.
             write(env.ctx.config_hypr / "bindings.lua", 'o.bind("SUPER + L", "Local", "true")\n')
             write(repo / "hypr" / "bindings.lua", 'o.bind("SUPER + R", "Repo", "true")\n')
@@ -549,9 +549,9 @@ class InspectAndSyncTests(unittest.TestCase):
             statuses = {f["path"]: f["status"] for f in snap["diff"]["files"]}
             self.assertEqual(statuses["hypr/bindings.lua"], "both")
             with self.assertRaises(cs.SyncError) as raised:
-                cs.cmd_apply(env.ctx, argparse_ns())
+                cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
             self.assertIn("both", str(raised.exception).lower())
-            forced = cs.cmd_apply(env.ctx, argparse_ns(files="hypr/bindings.lua"))
+            forced = cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, files="hypr/bindings.lua"))
             self.assertTrue(forced["ok"], forced)
             self.assertIn("SUPER + R", (env.ctx.config_hypr / "bindings.lua").read_text(encoding="utf-8"))
 
@@ -560,7 +560,7 @@ class InspectAndSyncTests(unittest.TestCase):
             repo = make_config_repo(env.home / "cfg")
             write(env.ctx.config_hypr / "monitors.lua", "LOCAL\n")
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
-            cs.cmd_apply(env.ctx, argparse_ns(include_machine=True, files="hypr/monitors.lua"))
+            cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, include_machine=True, files="hypr/monitors.lua"))
             self.assertIn("eDP-1", (env.ctx.config_hypr / "monitors.lua").read_text(encoding="utf-8"))
 
     def test_new_plugin_is_one_bundle(self) -> None:
@@ -678,7 +678,7 @@ class InspectAndSyncTests(unittest.TestCase):
             write(env.ctx.user_themes / "catppuccin" / "colors.toml", 'background = "#111111"\n')
             write(env.ctx.user_themes / "catppuccin" / "preview.png", "not-synced")
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
-            published = cs.cmd_publish(env.ctx, argparse_ns(explicit=True, files="", theme=True))
+            published = cs.cmd_publish(env.ctx, argparse_ns(dry_run=False, explicit=True, files="", theme=True))
             self.assertTrue(published["ok"], published)
             self.assertIn("omarchy/theme.name", published["published"])
             self.assertEqual((repo / "omarchy" / "theme.name").read_text(encoding="utf-8").strip(), "catppuccin")
@@ -686,7 +686,7 @@ class InspectAndSyncTests(unittest.TestCase):
             self.assertFalse((repo / "omarchy" / "themes" / "catppuccin" / "preview.png").exists())
             # Incoming apply onto a machine still on tokyo-night
             write(env.ctx.theme_name_path, "tokyo-night\n")
-            applied = cs.cmd_apply(env.ctx, argparse_ns(explicit=True, files="", theme=True))
+            applied = cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, explicit=True, files="", theme=True))
             self.assertTrue(applied["ok"], applied)
             self.assertEqual(env.ctx.theme_name_path.read_text(encoding="utf-8").strip(), "catppuccin")
             self.assertIn("background", (env.ctx.user_themes / "catppuccin" / "colors.toml").read_text())
@@ -698,7 +698,7 @@ class InspectAndSyncTests(unittest.TestCase):
         with TempHome() as env:
             repo = make_config_repo(env.home / "cfg")
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
-            cs.cmd_apply(env.ctx, argparse_ns())
+            cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
             bindings = env.ctx.config_hypr / "bindings.lua"
             bindings.write_text(
                 bindings.read_text(encoding="utf-8")
@@ -714,7 +714,7 @@ class InspectAndSyncTests(unittest.TestCase):
             write(env.ctx.config_plugins / "other.widget" / "Main.qml", "Item {}\n")
             published = cs.cmd_publish(
                 env.ctx,
-                argparse_ns(explicit=True, files="", shortcut=["SUPER + Y"], plugin=["other.widget"]),
+                argparse_ns(dry_run=False, explicit=True, files="", shortcut=["SUPER + Y"], plugin=["other.widget"]),
             )
             self.assertTrue(published["ok"], published)
             repo_bind = (repo / "hypr" / "bindings.lua").read_text(encoding="utf-8")
@@ -741,7 +741,7 @@ class InspectAndSyncTests(unittest.TestCase):
             self.assertEqual(snap["inspect"]["source"], "local")
             labels = {s["keys"]: s["label"] for s in snap["inspect"]["shortcuts"]}
             self.assertEqual(labels["SUPER + Y"], "Seeded shortcut")
-            published = cs.cmd_publish(env.ctx, argparse_ns())
+            published = cs.cmd_publish(env.ctx, argparse_ns(dry_run=False, ))
             self.assertTrue(published["ok"], published)
             self.assertIn("hypr/bindings.lua", published["published"])
             self.assertIn("SUPER + Y", (empty / "hypr" / "bindings.lua").read_text(encoding="utf-8"))
@@ -782,6 +782,52 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(payload["ok"])
             self.assertFalse(payload["configured"])
+
+    def test_stdin_url_read_returns_on_newline_without_eof(self) -> None:
+        # The panel writes the URL plus a newline and keeps the pipe open. A
+        # read-until-EOF here hung Connect forever; readline() must return as
+        # soon as the newline arrives, with the write end still open.
+        r, w = os.pipe()
+        try:
+            os.write(w, b"https://github.com/you/omarchy-config.git\n")
+            with os.fdopen(r, "r", encoding="utf-8") as rf:
+                old_stdin = sys.stdin
+                sys.stdin = rf
+                try:
+                    started = time.monotonic()
+                    self.assertEqual(cs.read_stdin_line(), "https://github.com/you/omarchy-config.git")
+                    self.assertLess(time.monotonic() - started, 5)
+                finally:
+                    sys.stdin = old_stdin
+        finally:
+            os.close(w)
+
+    def test_main_writes_log_file(self) -> None:
+        with TempHome() as env:
+            old_home = os.environ.get("HOME")
+            old_xdg = os.environ.get("XDG_DATA_HOME")
+            os.environ["HOME"] = str(env.home)
+            os.environ["XDG_DATA_HOME"] = str(env.data)
+            try:
+                from io import StringIO
+                from unittest.mock import patch
+                buf = StringIO()
+                with patch("sys.stdout", buf):
+                    code = cs.main(["snapshot"])
+                payload = json.loads(buf.getvalue())
+                self.assertEqual(code, 0)
+                log = Path(payload["log_file"])
+                self.assertTrue(log.is_file())
+                self.assertIn("snapshot ok", log.read_text(encoding="utf-8"))
+            finally:
+                if old_home is None:
+                    os.environ.pop("HOME", None)
+                else:
+                    os.environ["HOME"] = old_home
+                if old_xdg is None:
+                    os.environ.pop("XDG_DATA_HOME", None)
+                else:
+                    os.environ["XDG_DATA_HOME"] = old_xdg
 
 
 def argparse_ns(**kwargs):
@@ -878,6 +924,39 @@ class HideTests(unittest.TestCase):
             apply_snap = cs.cmd_apply(env.ctx, argparse_ns(dry_run=False))
             self.assertNotIn("hypr/looknfeel.lua", apply_snap.get("applied", []))
             self.assertFalse((env.home / ".config" / "hypr" / "looknfeel.lua").is_file())
+
+    def test_apply_dry_run_makes_no_changes(self) -> None:
+        with TempHome() as env:
+            repo = make_config_repo(env.home / "cfg")
+            cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
+            snap = cs.cmd_apply(env.ctx, argparse_ns(dry_run=True))
+            self.assertTrue(snap.get("dry_run"))
+            # It previews work...
+            self.assertGreater(len(snap.get("applied", [])), 0)
+            # ...but touches nothing: no files copied, no backup, no state.
+            self.assertFalse((env.home / ".config" / "hypr" / "looknfeel.lua").exists())
+            self.assertEqual(list(env.home.glob(".config/omarchy-backup*")), [])
+            self.assertNotIn("last_apply_at", cs.load_state(env.ctx))
+
+    def test_publish_dry_run_makes_no_changes(self) -> None:
+        with TempHome() as env:
+            repo = make_config_repo(env.home / "cfg")
+            cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
+            local = env.home / ".config" / "hypr" / "looknfeel.lua"
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_text("hl.decoration({ rounding = 12 })\n", encoding="utf-8")
+            head_before = git(repo, "rev-parse", "HEAD").stdout.strip()
+            snap = cs.cmd_publish(env.ctx, argparse_ns(dry_run=True))
+            self.assertTrue(snap.get("dry_run"))
+            self.assertIn("hypr/looknfeel.lua", snap.get("published", []))
+            self.assertFalse(snap.get("committed"))
+            self.assertFalse(snap.get("pushed"))
+            # Clone untouched: same HEAD, clean worktree.
+            self.assertEqual(git(repo, "rev-parse", "HEAD").stdout.strip(), head_before)
+            self.assertEqual(git(repo, "status", "--porcelain").stdout.strip(), "")
+            # Home and state untouched.
+            self.assertEqual(local.read_text(encoding="utf-8"), "hl.decoration({ rounding = 12 })\n")
+            self.assertNotIn("last_publish_at", cs.load_state(env.ctx))
 
 
 class SecurityTests(unittest.TestCase):
@@ -1605,7 +1684,10 @@ class SecurityHardeningTests(unittest.TestCase):
     def test_run_bounded_kills_child_exceeding_disk_budget(self) -> None:
         grow = self.tmp / "grow"
         grow.mkdir()
-        script = "i=0; while :; do head -c 65536 /dev/zero > f$i; i=$((i+1)); done"
+        # Paced writer: ~50 files/s, so the 0.25s watcher always catches the
+        # 1 MiB budget within a couple of samples instead of racing a fork
+        # loop that can dump tens of MiB between two samples on fast disks.
+        script = "i=0; while :; do head -c 65536 /dev/zero > f$i; sleep 0.02; i=$((i+1)); done"
         started = time.monotonic()
         result = cs.run_bounded(
             ["sh", "-c", script],
@@ -1663,7 +1745,7 @@ class SecurityHardeningTests(unittest.TestCase):
             cs.cmd_connect(env.ctx, argparse_ns(args=[str(repo)]))
             with patch.object(cs, "MAX_SYNC_TOTAL_BYTES", 10):
                 with self.assertRaises(cs.SyncError) as cm:
-                    cs.cmd_apply(env.ctx, argparse_ns())
+                    cs.cmd_apply(env.ctx, argparse_ns(dry_run=False, ))
             self.assertIn("per-operation size limit", str(cm.exception))
             # Nothing was installed or backed up.
             self.assertFalse((env.home / ".config" / "hypr" / "looknfeel.lua").exists())
